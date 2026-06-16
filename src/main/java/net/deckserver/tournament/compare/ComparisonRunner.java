@@ -28,35 +28,41 @@ public class ComparisonRunner {
     public int run(int playerCount, int preliminaryRounds, Duration timeBudget,
                    Path archonPath, Path krcgScriptPath) {
         try {
-            SolverConfig solverConfig = SolverConfig.createFromXmlResource(
-                    "solverConfig.xml", ComparisonRunner.class.getClassLoader());
-            solverConfig.setTerminationConfig(new TerminationConfig().withSpentLimit(timeBudget));
-
-            SeatingPlan archonPlan = archonImporter.importPlan(archonPath, playerCount, preliminaryRounds);
-            KrcgScorer krcgScorer = new KrcgScorer(krcgScriptPath);
-            TimefoldPlanScorer timefoldScorer = new TimefoldPlanScorer(solverConfig);
-
-            KrcgScore archonKrcg = krcgScorer.score(archonPlan);
-            TimefoldScoreSummary archonTimefold = timefoldScorer.score(archonPlan);
-
-            int requiredSeatedPlayers = archonPlan.rounds().getFirst().tables().stream()
-                    .mapToInt(table -> table.playerNumbers().size())
-                    .sum();
-            TournamentSchedule bestSchedule = solveBestExact(playerCount, preliminaryRounds,
-                    requiredSeatedPlayers, solverConfig);
-            SeatingPlan timefoldPlan = mapper.fromSchedule(bestSchedule, "Timefold generated");
-            KrcgScore timefoldKrcg = krcgScorer.score(timefoldPlan);
-            TimefoldScoreSummary timefoldTimefold = timefoldScorer.score(timefoldPlan);
-
-            printReport(playerCount, preliminaryRounds, timeBudget,
-                    archonPlan, archonKrcg, archonTimefold,
-                    timefoldPlan, timefoldKrcg, timefoldTimefold);
+            printReport(compare(playerCount, preliminaryRounds, timeBudget, archonPath, krcgScriptPath));
             return 0;
         } catch (Exception e) {
             System.err.println("Comparison failed: " + e.getMessage());
             e.printStackTrace(System.err);
             return 1;
         }
+    }
+
+    public ComparisonResult compare(int playerCount, int preliminaryRounds, Duration timeBudget,
+                                    Path archonPath, Path krcgScriptPath)
+            throws Exception {
+        SolverConfig solverConfig = SolverConfig.createFromXmlResource(
+                "solverConfig.xml", ComparisonRunner.class.getClassLoader());
+        solverConfig.setTerminationConfig(new TerminationConfig().withSpentLimit(timeBudget));
+
+        SeatingPlan archonPlan = archonImporter.importPlan(archonPath, playerCount, preliminaryRounds);
+        KrcgScorer krcgScorer = new KrcgScorer(krcgScriptPath);
+        TimefoldPlanScorer timefoldScorer = new TimefoldPlanScorer(solverConfig);
+
+        KrcgScore archonKrcg = krcgScorer.score(archonPlan);
+        TimefoldScoreSummary archonTimefold = timefoldScorer.score(archonPlan);
+
+        int requiredSeatedPlayers = archonPlan.rounds().getFirst().tables().stream()
+                .mapToInt(table -> table.playerNumbers().size())
+                .sum();
+        TournamentSchedule bestSchedule = solveBestExact(playerCount, preliminaryRounds,
+                requiredSeatedPlayers, solverConfig);
+        SeatingPlan timefoldPlan = mapper.fromSchedule(bestSchedule, "Timefold generated");
+        KrcgScore timefoldKrcg = krcgScorer.score(timefoldPlan);
+        TimefoldScoreSummary timefoldTimefold = timefoldScorer.score(timefoldPlan);
+
+        return new ComparisonResult(playerCount, preliminaryRounds, timeBudget,
+                archonPlan, archonKrcg, archonTimefold,
+                timefoldPlan, timefoldKrcg, timefoldTimefold);
     }
 
     private TournamentSchedule solveBestExact(int playerCount, int preliminaryRounds,
@@ -106,49 +112,42 @@ public class ComparisonRunner {
         return best;
     }
 
-    private void printReport(int playerCount, int preliminaryRounds, Duration timeBudget,
-                             SeatingPlan archonPlan, KrcgScore archonKrcg,
-                             TimefoldScoreSummary archonTimefold,
-                             SeatingPlan timefoldPlan, KrcgScore timefoldKrcg,
-                             TimefoldScoreSummary timefoldTimefold) {
-        int timefoldComparison = timefoldTimefold.score().compareTo(archonTimefold.score());
-        int krcgComparison = Double.compare(timefoldKrcg.total(), archonKrcg.total());
-
+    public void printReport(ComparisonResult result) {
         System.out.println();
         System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         System.out.printf("  Seating Comparison: %d players, %d preliminary rounds, %ss%n",
-                playerCount, preliminaryRounds, timeBudget.toSeconds());
+                result.playerCount(), result.preliminaryRounds(), result.timeBudget().toSeconds());
         System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        System.out.printf("  Archon source       : %s%n", archonPlan.source());
-        System.out.printf("  Timefold source     : %s%n", timefoldPlan.source());
+        System.out.printf("  Archon source       : %s%n", result.archonPlan().source());
+        System.out.printf("  Timefold source     : %s%n", result.timefoldPlan().source());
         System.out.println();
         System.out.printf("  %-18s %-22s %-22s%n", "Plan", "KRCG total", "Timefold score");
-        System.out.printf("  %-18s %-22.4f %-22s%n", "Archon", archonKrcg.total(), archonTimefold.score());
-        System.out.printf("  %-18s %-22.4f %-22s%n", "Timefold", timefoldKrcg.total(), timefoldTimefold.score());
+        System.out.printf("  %-18s %-22.4f %-22s%n", "Archon", result.archonKrcg().total(), result.archonTimefold().score());
+        System.out.printf("  %-18s %-22.4f %-22s%n", "Timefold", result.timefoldKrcg().total(), result.timefoldTimefold().score());
         System.out.println();
         System.out.printf("  KRCG delta          : %.4f (%s)%n",
-                timefoldKrcg.total() - archonKrcg.total(),
-                krcgComparison < 0 ? "Timefold better" : krcgComparison > 0 ? "Archon better" : "tie");
+                result.krcgDelta(),
+                result.krcgComparison() < 0 ? "Timefold better" : result.krcgComparison() > 0 ? "Archon better" : "tie");
         System.out.printf("  Timefold verdict    : %s%n",
-                timefoldComparison > 0 ? "Timefold better" : timefoldComparison < 0 ? "Archon better" : "tie");
+                result.timefoldComparison() > 0 ? "Timefold better" : result.timefoldComparison() < 0 ? "Archon better" : "tie");
         System.out.printf("  Confirmed superior  : %s%n",
-                timefoldComparison > 0 && krcgComparison < 0 ? "yes" : "no");
+                result.confirmedSuperior() ? "yes" : "no");
         System.out.println();
         System.out.println("  KRCG rule values:");
         for (String rule : List.of("R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9")) {
             System.out.printf("    %s  Archon=%-12.4f Timefold=%-12.4f Delta=% .4f%n",
                     rule,
-                    archonKrcg.rules().getOrDefault(rule, 0.0),
-                    timefoldKrcg.rules().getOrDefault(rule, 0.0),
-                    timefoldKrcg.rules().getOrDefault(rule, 0.0)
-                            - archonKrcg.rules().getOrDefault(rule, 0.0));
+                    result.archonKrcg().rules().getOrDefault(rule, 0.0),
+                    result.timefoldKrcg().rules().getOrDefault(rule, 0.0),
+                    result.timefoldKrcg().rules().getOrDefault(rule, 0.0)
+                            - result.archonKrcg().rules().getOrDefault(rule, 0.0));
         }
         System.out.println();
-        printSeatingPlan("Archon Seating", archonPlan);
+        printSeatingPlan("Archon Seating", result.archonPlan());
         System.out.println();
-        printSeatingPlan("Timefold Seating", timefoldPlan);
+        printSeatingPlan("Timefold Seating", result.timefoldPlan());
         System.out.println();
-        printPlayerSummary(archonPlan, timefoldPlan);
+        printPlayerSummary(result);
         System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     }
 
@@ -173,71 +172,19 @@ public class ComparisonRunner {
         }
     }
 
-    private void printPlayerSummary(SeatingPlan archonPlan, SeatingPlan timefoldPlan) {
-        List<PlayerMetrics> archonMetrics = playerMetrics(archonPlan);
-        List<PlayerMetrics> timefoldMetrics = playerMetrics(timefoldPlan);
-
+    private void printPlayerSummary(ComparisonResult result) {
         System.out.println("  Player Summary:");
         System.out.printf("    %-6s %-8s %-8s %-8s %-8s %-8s %-8s%n",
                 "Player", "A-VPs", "T-VPs", "VP Δ", "A-Xfer", "T-Xfer", "Xfer Δ");
-        for (int player = 1; player <= archonPlan.playerCount(); player++) {
-            PlayerMetrics archon = archonMetrics.get(player);
-            PlayerMetrics timefold = timefoldMetrics.get(player);
+        for (ComparisonResult.PlayerSummaryRow row : result.playerSummary()) {
             System.out.printf("    %-6d %-8.3f %-8.3f %-8.3f %-8.3f %-8.3f %-8.3f%n",
-                    player,
-                    archon.averageAvailableVps(),
-                    timefold.averageAvailableVps(),
-                    timefold.averageAvailableVps() - archon.averageAvailableVps(),
-                    archon.averageStartingTransfers(),
-                    timefold.averageStartingTransfers(),
-                    timefold.averageStartingTransfers() - archon.averageStartingTransfers());
+                    row.player(),
+                    row.archonAverageAvailableVps(),
+                    row.timefoldAverageAvailableVps(),
+                    row.timefoldAverageAvailableVps() - row.archonAverageAvailableVps(),
+                    row.archonAverageStartingTransfers(),
+                    row.timefoldAverageStartingTransfers(),
+                    row.timefoldAverageStartingTransfers() - row.archonAverageStartingTransfers());
         }
-    }
-
-    private List<PlayerMetrics> playerMetrics(SeatingPlan plan) {
-        List<PlayerMetricsAccumulator> accumulators = new ArrayList<>();
-        for (int i = 0; i <= plan.playerCount(); i++) {
-            accumulators.add(new PlayerMetricsAccumulator());
-        }
-
-        for (SeatingRound round : plan.rounds()) {
-            for (SeatingTable table : round.tables()) {
-                int tableSize = table.playerNumbers().size();
-                for (int seatIndex = 0; seatIndex < table.playerNumbers().size(); seatIndex++) {
-                    int player = table.playerNumbers().get(seatIndex);
-                    accumulators.get(player).add(tableSize, Math.min(seatIndex + 1, 4));
-                }
-            }
-        }
-
-        List<PlayerMetrics> metrics = new ArrayList<>();
-        for (int player = 0; player <= plan.playerCount(); player++) {
-            metrics.add(accumulators.get(player).toMetrics());
-        }
-        return metrics;
-    }
-
-    private static class PlayerMetricsAccumulator {
-        private int playedRounds;
-        private int availableVps;
-        private int startingTransfers;
-
-        void add(int tableSize, int startingTransfer) {
-            playedRounds++;
-            availableVps += tableSize;
-            startingTransfers += startingTransfer;
-        }
-
-        PlayerMetrics toMetrics() {
-            if (playedRounds == 0) {
-                return new PlayerMetrics(0.0, 0.0);
-            }
-            return new PlayerMetrics(
-                    (double) availableVps / playedRounds,
-                    (double) startingTransfers / playedRounds);
-        }
-    }
-
-    private record PlayerMetrics(double averageAvailableVps, double averageStartingTransfers) {
     }
 }

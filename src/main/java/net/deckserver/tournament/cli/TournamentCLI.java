@@ -6,6 +6,7 @@ import ai.timefold.solver.core.config.solver.SolverConfig;
 import ai.timefold.solver.core.config.solver.termination.TerminationConfig;
 import io.quarkus.runtime.QuarkusApplication;
 import io.quarkus.runtime.annotations.QuarkusMain;
+import net.deckserver.tournament.compare.BatchComparisonRunner;
 import net.deckserver.tournament.compare.ComparisonRunner;
 import net.deckserver.tournament.domain.Player;
 import net.deckserver.tournament.domain.TableSeat;
@@ -18,7 +19,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -47,6 +50,9 @@ public class TournamentCLI implements QuarkusApplication {
 
     @Override
     public int run(String... args) {
+        if (args.length > 0 && "batch-compare".equalsIgnoreCase(args[0])) {
+            return runBatchCompare(args);
+        }
         if (args.length > 0 && "compare".equalsIgnoreCase(args[0])) {
             return runCompare(args);
         }
@@ -185,6 +191,76 @@ public class TournamentCLI implements QuarkusApplication {
 
         Duration totalBudget = parseDuration(timeLimit != null ? timeLimit : defaultTimeLimit);
         return new ComparisonRunner().run(playerCount, roundCount, totalBudget, archonPath, krcgScriptPath);
+    }
+
+    private int runBatchCompare(String... args) {
+        int minPlayers = 8;
+        int maxPlayers = 40;
+        Set<Integer> rounds = new LinkedHashSet<>(List.of(2, 3));
+        String initialTime = "5m";
+        String stepTime = "5m";
+        int cycles = 1;
+        Path statePath = Path.of("comparison-batch-state.json");
+        Path reportPath = Path.of("confirmed-superior-report.md");
+        Path archonPath = Path.of("thearchon1.5l.xlsx");
+        Path krcgScriptPath = Path.of("tools/krcg/krcg_score.py");
+
+        for (String arg : args) {
+            if (arg.startsWith("--min-players=")) {
+                minPlayers = Integer.parseInt(arg.substring("--min-players=".length()));
+            } else if (arg.startsWith("--max-players=")) {
+                maxPlayers = Integer.parseInt(arg.substring("--max-players=".length()));
+            } else if (arg.startsWith("--rounds=")) {
+                rounds = parseRounds(arg.substring("--rounds=".length()));
+            } else if (arg.startsWith("--initial-time=")) {
+                initialTime = arg.substring("--initial-time=".length());
+            } else if (arg.startsWith("--step=")) {
+                stepTime = arg.substring("--step=".length());
+            } else if (arg.startsWith("--cycles=")) {
+                cycles = Integer.parseInt(arg.substring("--cycles=".length()));
+            } else if (arg.startsWith("--state=")) {
+                statePath = Path.of(arg.substring("--state=".length()));
+            } else if (arg.startsWith("--report=")) {
+                reportPath = Path.of(arg.substring("--report=".length()));
+            } else if (arg.startsWith("--archon=")) {
+                archonPath = Path.of(arg.substring("--archon=".length()));
+            } else if (arg.startsWith("--krcg-script=")) {
+                krcgScriptPath = Path.of(arg.substring("--krcg-script=".length()));
+            }
+        }
+
+        if (minPlayers < 4 || maxPlayers < minPlayers || rounds.isEmpty()) {
+            System.err.println("Usage: batch-compare [--min-players=8] [--max-players=40] " +
+                    "[--rounds=2,3] [--initial-time=5m] [--step=5m] [--cycles=1] " +
+                    "[--state=comparison-batch-state.json] [--report=confirmed-superior-report.md]");
+            System.err.println("  Use --cycles=0 to keep running until all cases are confirmed.");
+            return 1;
+        }
+
+        BatchComparisonRunner.BatchOptions options = new BatchComparisonRunner.BatchOptions(
+                minPlayers,
+                maxPlayers,
+                rounds,
+                parseDuration(initialTime),
+                parseDuration(stepTime),
+                cycles,
+                statePath,
+                reportPath,
+                archonPath,
+                krcgScriptPath);
+        return new BatchComparisonRunner().run(options);
+    }
+
+    private Set<Integer> parseRounds(String input) {
+        Set<Integer> result = new LinkedHashSet<>();
+        for (String item : input.split(",")) {
+            int round = Integer.parseInt(item.trim());
+            if (round != 2 && round != 3) {
+                throw new IllegalArgumentException("Only 2 and 3 preliminary rounds are supported: " + round);
+            }
+            result.add(round);
+        }
+        return result;
     }
 
     private void printSolution(TournamentSchedule solution) {
