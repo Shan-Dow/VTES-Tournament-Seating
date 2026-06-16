@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<solver xmlns="https://timefold.ai/xsd/solver"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="https://timefold.ai/xsd/solver https://timefold.ai/xsd/solver/solver.xsd">
+
+    <solutionClass>net.deckserver.tournament.domain.TournamentSchedule</solutionClass>
+    <entityClass>net.deckserver.tournament.domain.TableSeat</entityClass>
+
+    <scoreDirectorFactory>
+        <constraintProviderClass>net.deckserver.tournament.solver.TournamentConstraintProvider</constraintProviderClass>
+    </scoreDirectorFactory>
+
+    <!--
+      Default termination: overridden at runtime by TournamentCLI via the time argument.
+      The Quarkus REST path uses application.properties and ignores this value.
+    -->
+    <termination>
+        <spentLimit>PT60S</spentLimit>
+    </termination>
+
+</solver>
