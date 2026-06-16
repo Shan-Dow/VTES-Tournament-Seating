@@ -147,6 +147,8 @@ public class ComparisonRunner {
         printSeatingPlan("Archon Seating", archonPlan);
         System.out.println();
         printSeatingPlan("Timefold Seating", timefoldPlan);
+        System.out.println();
+        printPlayerSummary(archonPlan, timefoldPlan);
         System.out.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     }
 
@@ -169,5 +171,73 @@ public class ComparisonRunner {
                                 .collect(Collectors.joining(" -> ")));
             }
         }
+    }
+
+    private void printPlayerSummary(SeatingPlan archonPlan, SeatingPlan timefoldPlan) {
+        List<PlayerMetrics> archonMetrics = playerMetrics(archonPlan);
+        List<PlayerMetrics> timefoldMetrics = playerMetrics(timefoldPlan);
+
+        System.out.println("  Player Summary:");
+        System.out.printf("    %-6s %-8s %-8s %-8s %-8s %-8s %-8s%n",
+                "Player", "A-VPs", "T-VPs", "VP Δ", "A-Xfer", "T-Xfer", "Xfer Δ");
+        for (int player = 1; player <= archonPlan.playerCount(); player++) {
+            PlayerMetrics archon = archonMetrics.get(player);
+            PlayerMetrics timefold = timefoldMetrics.get(player);
+            System.out.printf("    %-6d %-8.3f %-8.3f %-8.3f %-8.3f %-8.3f %-8.3f%n",
+                    player,
+                    archon.averageAvailableVps(),
+                    timefold.averageAvailableVps(),
+                    timefold.averageAvailableVps() - archon.averageAvailableVps(),
+                    archon.averageStartingTransfers(),
+                    timefold.averageStartingTransfers(),
+                    timefold.averageStartingTransfers() - archon.averageStartingTransfers());
+        }
+    }
+
+    private List<PlayerMetrics> playerMetrics(SeatingPlan plan) {
+        List<PlayerMetricsAccumulator> accumulators = new ArrayList<>();
+        for (int i = 0; i <= plan.playerCount(); i++) {
+            accumulators.add(new PlayerMetricsAccumulator());
+        }
+
+        for (SeatingRound round : plan.rounds()) {
+            for (SeatingTable table : round.tables()) {
+                int tableSize = table.playerNumbers().size();
+                for (int seatIndex = 0; seatIndex < table.playerNumbers().size(); seatIndex++) {
+                    int player = table.playerNumbers().get(seatIndex);
+                    accumulators.get(player).add(tableSize, Math.min(seatIndex + 1, 4));
+                }
+            }
+        }
+
+        List<PlayerMetrics> metrics = new ArrayList<>();
+        for (int player = 0; player <= plan.playerCount(); player++) {
+            metrics.add(accumulators.get(player).toMetrics());
+        }
+        return metrics;
+    }
+
+    private static class PlayerMetricsAccumulator {
+        private int playedRounds;
+        private int availableVps;
+        private int startingTransfers;
+
+        void add(int tableSize, int startingTransfer) {
+            playedRounds++;
+            availableVps += tableSize;
+            startingTransfers += startingTransfer;
+        }
+
+        PlayerMetrics toMetrics() {
+            if (playedRounds == 0) {
+                return new PlayerMetrics(0.0, 0.0);
+            }
+            return new PlayerMetrics(
+                    (double) availableVps / playedRounds,
+                    (double) startingTransfers / playedRounds);
+        }
+    }
+
+    private record PlayerMetrics(double averageAvailableVps, double averageStartingTransfers) {
     }
 }
