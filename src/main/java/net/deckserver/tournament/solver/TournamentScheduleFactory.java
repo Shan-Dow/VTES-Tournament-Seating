@@ -70,6 +70,44 @@ public class TournamentScheduleFactory {
     }
 
     /**
+     * Creates a schedule with exactly the requested number of rounds. This is used for
+     * apples-to-apples comparison against fixed external seating charts.
+     */
+    public static TournamentSchedule createExact(List<Player> players, int roundCount,
+                                                 SeatLayoutCalculator.TableLayout layout) {
+        int playerCount = players.size();
+        List<Integer> tableSizes = SeatLayoutCalculator.tableSizes(layout);
+
+        List<Round> rounds = new ArrayList<>();
+        for (int r = 1; r <= roundCount; r++) {
+            rounds.add(new Round(r));
+        }
+
+        List<TableSeat> seats = new ArrayList<>();
+        for (Round round : rounds) {
+            for (int t = 0; t < tableSizes.size(); t++) {
+                int tableNumber = t + 1;
+                int tableSize = tableSizes.get(t);
+                for (int s = 1; s <= tableSize; s++) {
+                    seats.add(new TableSeat(round, tableNumber, tableSize, s, false));
+                }
+            }
+        }
+
+        long seatsPerRound = seats.stream()
+                .filter(s -> s.getRound().getRoundNumber() == 1)
+                .count();
+        int expectedSeats = playerCount - layout.sittingOut();
+        if (seatsPerRound != expectedSeats) {
+            throw new IllegalStateException(
+                    String.format("Seat count mismatch: expected %d per round, got %d",
+                            expectedSeats, seatsPerRound));
+        }
+
+        return new TournamentSchedule(rounds, players, seats, roundCount, 0);
+    }
+
+    /**
      * Creates a schedule using the default (minimum sit-out) layout.
      */
     public static TournamentSchedule create(List<Player> players, int roundCount) {

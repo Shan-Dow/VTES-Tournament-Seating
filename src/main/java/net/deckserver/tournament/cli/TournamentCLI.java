@@ -6,6 +6,7 @@ import ai.timefold.solver.core.config.solver.SolverConfig;
 import ai.timefold.solver.core.config.solver.termination.TerminationConfig;
 import io.quarkus.runtime.QuarkusApplication;
 import io.quarkus.runtime.annotations.QuarkusMain;
+import net.deckserver.tournament.compare.ComparisonRunner;
 import net.deckserver.tournament.domain.Player;
 import net.deckserver.tournament.domain.TableSeat;
 import net.deckserver.tournament.domain.TournamentSchedule;
@@ -13,6 +14,7 @@ import net.deckserver.tournament.solver.SeatLayoutCalculator;
 import net.deckserver.tournament.solver.TournamentScheduleFactory;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -45,6 +47,10 @@ public class TournamentCLI implements QuarkusApplication {
 
     @Override
     public int run(String... args) {
+        if (args.length > 0 && "compare".equalsIgnoreCase(args[0])) {
+            return runCompare(args);
+        }
+
         // ── Parse arguments ────────────────────────────────────────────────────
         int playerCount = 0;
         int roundCount = 0;
@@ -148,6 +154,37 @@ public class TournamentCLI implements QuarkusApplication {
         System.out.println();
         printSolution(bestSolution);
         return 0;
+    }
+
+    private int runCompare(String... args) {
+        int playerCount = 0;
+        int roundCount = 0;
+        String timeLimit = null;
+        Path archonPath = Path.of("thearchon1.5l.xlsx");
+        Path krcgScriptPath = Path.of("tools/krcg/krcg_score.py");
+
+        for (String arg : args) {
+            if (arg.startsWith("--players=")) {
+                playerCount = Integer.parseInt(arg.substring("--players=".length()));
+            } else if (arg.startsWith("--rounds=")) {
+                roundCount = Integer.parseInt(arg.substring("--rounds=".length()));
+            } else if (arg.startsWith("--time=")) {
+                timeLimit = arg.substring("--time=".length());
+            } else if (arg.startsWith("--archon=")) {
+                archonPath = Path.of(arg.substring("--archon=".length()));
+            } else if (arg.startsWith("--krcg-script=")) {
+                krcgScriptPath = Path.of(arg.substring("--krcg-script=".length()));
+            }
+        }
+
+        if (playerCount < 4 || (roundCount != 2 && roundCount != 3)) {
+            System.err.println("Usage: compare --players=N --rounds=2|3 [--time=Xs] " +
+                    "[--archon=thearchon1.5l.xlsx] [--krcg-script=tools/krcg/krcg_score.py]");
+            return 1;
+        }
+
+        Duration totalBudget = parseDuration(timeLimit != null ? timeLimit : defaultTimeLimit);
+        return new ComparisonRunner().run(playerCount, roundCount, totalBudget, archonPath, krcgScriptPath);
     }
 
     private void printSolution(TournamentSchedule solution) {
